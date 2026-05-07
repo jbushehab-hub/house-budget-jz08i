@@ -14,7 +14,7 @@ const _m={name:"House Budget Tracker",short_name:"HouseTracker",start_url:"./",d
         {src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230F1923'/%3E%3Ctext y='420' x='20' font-size='440'%3E%F0%9F%8F%A1%3C/text%3E%3C/svg%3E",sizes:"512x512",type:"image/svg+xml"}]};
 const _mb=new Blob([JSON.stringify(_m)],{type:"application/json"});
 const _ml=document.createElement("link");_ml.rel="manifest";_ml.href=URL.createObjectURL(_mb);document.head.appendChild(_ml);
-</script><link rel="manifest" href="blob:null/0f29e016-b025-4b5b-b2aa-17ca634bf640"><link rel="manifest" href="blob:https://jbushehab-hub.github.io/ad6ef73e-5757-4be8-814e-975bd9d3ec2b"><link rel="manifest" href="blob:null/fd695ae9-75b7-4b8c-929c-3691a55578b1">
+</script><link rel="manifest" href="blob:null/6cee1c5e-b786-4845-a17d-d17ae5334a1f"><link rel="manifest" href="blob:https://jbushehab-hub.github.io/ad6ef73e-5757-4be8-814e-975bd9d3ec2b"><link rel="manifest" href="blob:null/fd695ae9-75b7-4b8c-929c-3691a55578b1">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet">
 <style>
 /* ── CSS Variables: Dark & Light Mode ── */
@@ -6787,7 +6787,7 @@ ReactDOM.createRoot(document.getElementById("screen")).render( /*#__PURE__*/Reac
             <div style="font-size:13px;font-weight:800;color:#ECF0F1;">Paste your token below</div>
           </div>
           <div style="font-size:10px;font-weight:700;color:#7F8C8D;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">GitHub Personal Access Token</div>
-          <input id="inp-netlify-token" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="width:100%;background:#0F1923;border:1px solid #243447;border-radius:10px;padding:11px 14px;color:#ECF0F1;font-size:13px;font-family:'Nunito Sans',sans-serif;outline:none;margin-bottom:4px;">
+          <input id="inp-netlify-token" type="text" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" style="width:100%;background:#0F1923;border:1px solid #243447;border-radius:10px;padding:11px 14px;color:#ECF0F1;font-size:13px;font-family:'Nunito Sans',sans-serif;outline:none;margin-bottom:4px;">
           <div style="font-size:10px;color:#7F8C8D;">Saved locally — only sent to GitHub's API to publish your app.</div>
         </div>
 
@@ -6802,7 +6802,7 @@ ReactDOM.createRoot(document.getElementById("screen")).render( /*#__PURE__*/Reac
           <div style="font-size:16px;font-weight:900;color:#ECF0F1;font-family:Nunito,sans-serif;margin-bottom:6px;">Publishing to GitHub Pages…</div>
           <div style="font-size:12px;color:#7F8C8D;line-height:1.6;" id="sb-loading-msg">Creating repo &amp; uploading your app. Takes ~20 seconds.</div>
           <div style="margin:20px auto 0;width:200px;height:5px;background:#243447;border-radius:99px;overflow:hidden;">
-            <div id="sb-progress-bar" style="height: 100%; width: 18.0851%; background: linear-gradient(90deg, rgb(0, 199, 183), rgb(0, 173, 159)); border-radius: 99px; transition: width 0.4s;"></div>
+            <div id="sb-progress-bar" style="height: 100%; width: 14.6809%; background: linear-gradient(90deg, rgb(0, 199, 183), rgb(0, 173, 159)); border-radius: 99px; transition: width 0.4s;"></div>
           </div>
         </div>
       </div>
@@ -8621,28 +8621,49 @@ document.addEventListener("keydown", e => {
   }
   function saveProfiles(list){
     try{localStorage.setItem("hbt_profiles",JSON.stringify(list));}catch(e){}
-    /* Push stripped profile list (no pinHash) to Firebase so other devices can see them */
+    /* Push full profile list including pinHash to Firebase so PINs sync across devices */
     try{
-      const stripped=list.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin}));
+      const stripped=list.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin,pinHash:p.pinHash||""}));
       fetch(_PROF_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped)}).catch(()=>{});
     }catch(e){}
   }
   async function _fetchAndMergeProfilesFromCloud(){
     try{
-      const res=await fetch(_PROF_URL);
+      const res=await fetch(_PROF_URL+"?t="+Date.now());
       if(!res.ok) return;
       const remote=await res.json();
-      if(!Array.isArray(remote)||remote.length===0) return;
+      if(!Array.isArray(remote)||remote.length===0){
+        /* Remote is empty — push our local profiles up */
+        const local=getProfiles();
+        if(local.length>0){
+          const stripped=local.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin}));
+          fetch(_PROF_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped)}).catch(()=>{});
+        }
+        return;
+      }
       const local=getProfiles();
-      /* Merge: add any remote profile not already in local */
       let changed=false;
+      /* Add remote profiles not in local, update pinHash for existing ones */
       remote.forEach(rp=>{
-        if(!local.find(lp=>lp.id===rp.id)){
-          local.push({id:rp.id,name:rp.name,avatar:rp.avatar||"👤",color:rp.color||"#F0A500",hasPin:false,pinHash:""});
+        const existing=local.find(lp=>lp.id===rp.id);
+        if(!existing){
+          local.push({id:rp.id,name:rp.name,avatar:rp.avatar||"👤",color:rp.color||"#F0A500",hasPin:rp.hasPin||false,pinHash:rp.pinHash||""});
+          changed=true;
+        } else if(rp.pinHash && rp.pinHash!==existing.pinHash){
+          /* Update pinHash from remote if it changed on another device */
+          existing.pinHash=rp.pinHash;
+          existing.hasPin=rp.hasPin||false;
           changed=true;
         }
       });
       if(changed){try{localStorage.setItem("hbt_profiles",JSON.stringify(local));}catch(e){}}
+      /* Push any local profiles not in remote back up */
+      const newRemoteIds=remote.map(r=>r.id);
+      const toAdd=local.filter(lp=>!newRemoteIds.includes(lp.id));
+      if(toAdd.length>0){
+        const merged=[...remote,...toAdd.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin,pinHash:p.pinHash||""}))];
+        fetch(_PROF_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(merged)}).catch(()=>{});
+      }
     }catch(e){}
   }
   function getProfileData(id){
@@ -8674,6 +8695,14 @@ document.addEventListener("keydown", e => {
 
   /* ── render helpers ── */
   function renderProfileList(){
+    /* Render immediately from local storage — don't wait for network */
+    _renderProfileListUI();
+    /* Sync from Firebase in background, then re-render if anything changed */
+    _fetchAndMergeProfilesFromCloud().then(()=>_renderProfileListUI()).catch(()=>{});
+  }
+  window.renderProfileList = renderProfileList;
+
+  function _renderProfileListUI(){
     const profiles=getProfiles();
     let html=`<div class="pg-card">`;
     if(profiles.length){
@@ -8737,15 +8766,19 @@ document.addEventListener("keydown", e => {
     </div>`;
   };
 
-  function renderSetPin(profileId,required){
+  function renderSetPin(profileId,required,isNewDevice){
     const profiles=getProfiles();
     const profile=profiles.find(p=>p.id===profileId);
     _pinBuffer="";
+    const subtitle = isNewDevice
+      ? "⚠️ Set a PIN for this device to unlock"
+      : required ? "Enter PIN to unlock" : "Set a PIN for this profile (optional)";
+    _pinTarget={mode: (required && !isNewDevice) ? "verify" : "set", profileId};
     content.innerHTML=`
       <div class="pg-card" style="text-align:center;">
         <div style="font-size:36px;margin-bottom:4px;">${profile?.avatar||"👤"}</div>
         <div style="font-size:16px;font-weight:800;color:var(--tx);margin-bottom:4px;">${profile?.name||""}</div>
-        <div style="font-size:12px;color:var(--mu);margin-bottom:18px;">${required?"Enter PIN to unlock":"Set a PIN for this profile (optional)"}</div>
+        <div style="font-size:12px;color:var(--mu);margin-bottom:18px;">${subtitle}</div>
         <div class="pg-pin-row" id="pg-pin-dots">
           ${[0,1,2,3].map(i=>`<div class="pg-pin-dot" id="pgd_${i}"></div>`).join("")}
         </div>
@@ -8753,10 +8786,9 @@ document.addEventListener("keydown", e => {
         <div class="pg-numpad">
           ${[1,2,3,4,5,6,7,8,9,"","0","⌫"].map(k=>`<button class="pg-num${k==="⌫"?" del":""}" onclick="pg_numpad('${k}')">${k}</button>`).join("")}
         </div>
-        ${!required?`<button class="pg-btn pg-btn-secondary" style="margin-top:14px;" onclick="pg_skipPin('${profileId}')">Skip — No PIN</button>`:""}
+        ${!required&&!isNewDevice?`<button class="pg-btn pg-btn-secondary" style="margin-top:14px;" onclick="pg_skipPin('${profileId}')">Skip — No PIN</button>`:""}
         <button class="pg-btn pg-btn-secondary" style="margin-top:6px;" onclick="pg_back()">← Back</button>
       </div>`;
-    _pinTarget={mode:required?"verify":"set",profileId};
   }
 
   window.pg_numpad=function(k){
@@ -8789,9 +8821,22 @@ document.addEventListener("keydown", e => {
       if(hashPin(_pinBuffer)===profiles[idx].pinHash){
         _enterApp(_pinTarget.profileId);
       } else {
-        _pinBuffer="";
-        for(let i=0;i<4;i++){const d=document.getElementById("pgd_"+i);if(d)d.classList.remove("filled");}
-        if(errEl){errEl.style.display="block";errEl.textContent="Wrong PIN — try again";}
+        /* Before showing error, try fetching latest PIN from Firebase (may have changed on another device) */
+        _fetchAndMergeProfilesFromCloud().then(()=>{
+          const refreshed=getProfiles();
+          const ridx=refreshed.findIndex(p=>p.id===_pinTarget.profileId);
+          if(ridx!==-1 && hashPin(_pinBuffer)===refreshed[ridx].pinHash){
+            _enterApp(_pinTarget.profileId);
+          } else {
+            _pinBuffer="";
+            for(let i=0;i<4;i++){const d=document.getElementById("pgd_"+i);if(d)d.classList.remove("filled");}
+            if(errEl){errEl.style.display="block";errEl.textContent="Wrong PIN — try again";}
+          }
+        }).catch(()=>{
+          _pinBuffer="";
+          for(let i=0;i<4;i++){const d=document.getElementById("pgd_"+i);if(d)d.classList.remove("filled");}
+          if(errEl){errEl.style.display="block";errEl.textContent="Wrong PIN — try again";}
+        });
       }
     }
   };
@@ -8806,7 +8851,12 @@ document.addEventListener("keydown", e => {
     if(!profile) return;
     if(profile.hasPin){
       _pinBuffer="";
-      renderSetPin(profileId,true);
+      if(!profile.pinHash){
+        /* PIN required but not set on this device yet — prompt to create one */
+        renderSetPin(profileId, false, true);
+      } else {
+        renderSetPin(profileId, true);
+      }
     } else {
       _enterApp(profileId);
     }
@@ -8939,6 +8989,7 @@ document.addEventListener("keydown", e => {
     }
   }
 
+  window._renderAdminPanel = _renderAdminPanel;
   function _renderAdminPanel(pinChanged){
     const profiles=getProfiles();
     const ac=document.getElementById("pg-admin-content");
@@ -8950,7 +9001,7 @@ document.addEventListener("keydown", e => {
               <div style="font-size:13px;font-weight:800;color:var(--tx);">${p.name}</div>
               <div style="font-size:10px;color:var(--mu);">PIN: ${p.hasPin?"Set":"None"}</div>
             </div>
-            <button onclick="pg_adminResetPin('${p.id}')" style="background:#F0A50022;border:1px solid #F0A50044;border-radius:10px;padding:6px 10px;font-size:11px;font-weight:800;color:#F0A500;cursor:pointer;font-family:'Nunito Sans',sans-serif;margin-right:6px;">Reset PIN</button>
+            <button onclick="pg_adminSetPin('${p.id}','${p.name}')" style="background:#F0A50022;border:1px solid #F0A50044;border-radius:10px;padding:6px 10px;font-size:11px;font-weight:800;color:#F0A500;cursor:pointer;font-family:'Nunito Sans',sans-serif;margin-right:6px;">🔑 Change PIN</button>
             <button onclick="pg_adminDeleteProfile('${p.id}','${p.name}')" style="background:#E74C3C22;border:1px solid #E74C3C44;border-radius:10px;padding:6px 10px;font-size:11px;font-weight:800;color:#E74C3C;cursor:pointer;font-family:'Nunito Sans',sans-serif;">🗑 Delete</button>
           </div>`).join("")
       : `<div style="text-align:center;padding:20px;color:var(--mu);font-size:13px;">No profiles yet.</div>`;
@@ -8978,14 +9029,44 @@ document.addEventListener("keydown", e => {
     _renderAdminPin("Change Admin PIN","Enter your current Admin PIN");
   };
 
-  window.pg_adminResetPin=function(profileId){
-    const profiles=getProfiles();
-    const idx=profiles.findIndex(p=>p.id===profileId);
-    if(idx===-1) return;
-    profiles[idx].hasPin=true;
-    profiles[idx].pinHash=hashPin("0000");
-    saveProfiles(profiles);
-    _renderAdminPanel();
+  window.pg_adminSetPin=function(profileId, profileName){
+    const ac=document.getElementById("pg-admin-content");
+    let buf="";
+    function renderDots(){ [0,1,2,3].forEach(i=>{ const d=document.getElementById("apsd_"+i); if(d) d.className="pg-pin-dot"+(i<buf.length?" filled":""); }); }
+    function handleKey(k){
+      const errEl=document.getElementById("aps-pin-err");
+      if(k==="del"){ buf=buf.slice(0,-1); renderDots(); if(errEl) errEl.style.display="none"; return; }
+      if(buf.length>=4) return;
+      buf+=k; renderDots();
+      if(buf.length===4){
+        const profiles=getProfiles();
+        const idx=profiles.findIndex(p=>p.id===profileId);
+        if(idx===-1) return;
+        profiles[idx].hasPin=true;
+        profiles[idx].pinHash=hashPin(buf);
+        saveProfiles(profiles);
+        _renderAdminPanel();
+      }
+    }
+    ac.innerHTML=`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <button onclick="_renderAdminPanel()" style="background:var(--cardH);border:1px solid var(--bo);border-radius:10px;padding:6px 12px;font-size:12px;color:var(--mu);cursor:pointer;font-family:'Nunito Sans',sans-serif;">← Back</button>
+        <div style="font-size:14px;font-weight:800;color:var(--tx);">Set PIN for ${profileName}</div>
+      </div>
+      <div style="text-align:center;padding:10px 0 20px;">
+        <div style="font-size:13px;color:var(--mu);margin-bottom:18px;">Enter new 4-digit PIN</div>
+        <div class="pg-pin-row" id="aps-pin-dots" style="justify-content:center;margin-bottom:8px;">
+          ${[0,1,2,3].map(i=>`<div class="pg-pin-dot" id="apsd_${i}"></div>`).join("")}
+        </div>
+        <div id="aps-pin-err" style="font-size:11px;color:#E74C3C;min-height:16px;margin-bottom:12px;display:none;"></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:240px;margin:0 auto;">
+          ${[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="window._apsKey('${n}')" style="padding:16px;font-size:18px;font-weight:800;background:var(--cardH);border:1.5px solid var(--bo);border-radius:14px;color:var(--tx);cursor:pointer;font-family:'Nunito Sans',sans-serif;">${n}</button>`).join("")}
+          <div></div>
+          <button onclick="window._apsKey('0')" style="padding:16px;font-size:18px;font-weight:800;background:var(--cardH);border:1.5px solid var(--bo);border-radius:14px;color:var(--tx);cursor:pointer;font-family:'Nunito Sans',sans-serif;">0</button>
+          <button onclick="window._apsKey('del')" style="padding:16px;font-size:18px;background:var(--cardH);border:1.5px solid var(--bo);border-radius:14px;color:#E74C3C;cursor:pointer;font-family:'Nunito Sans',sans-serif;">⌫</button>
+        </div>
+      </div>`;
+    window._apsKey=handleKey;
   };
 
   window.pg_adminDeleteProfile=function(profileId,name){
@@ -9102,11 +9183,7 @@ document.addEventListener("keydown", e => {
   }
 
   /* ── Boot ── */
-  async function _boot(){
-    /* If no local profiles, try to pull from Firebase first */
-    if(getProfiles().length===0){
-      await _fetchAndMergeProfilesFromCloud();
-    }
+  function _boot(){
     const autoProfile=localStorage.getItem(SEL_KEY);
     if(autoProfile){
       const profiles=getProfiles();
@@ -9131,6 +9208,14 @@ document.addEventListener("keydown", e => {
       }
     } else {
       renderProfileList();
+    }
+    /* Push local profiles to Firebase in background so other devices can see them */
+    const localProfs=getProfiles();
+    if(localProfs.length>0){
+      try{
+        const stripped=localProfs.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin,pinHash:p.pinHash||""}));
+        fetch(_PROF_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped)}).catch(()=>{});
+      }catch(e){}
     }
   }
   _boot();
