@@ -14,7 +14,7 @@ const _m={name:"House Budget Tracker",short_name:"HouseTracker",start_url:"./",d
         {src:"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%230F1923'/%3E%3Ctext y='420' x='20' font-size='440'%3E%F0%9F%8F%A1%3C/text%3E%3C/svg%3E",sizes:"512x512",type:"image/svg+xml"}]};
 const _mb=new Blob([JSON.stringify(_m)],{type:"application/json"});
 const _ml=document.createElement("link");_ml.rel="manifest";_ml.href=URL.createObjectURL(_mb);document.head.appendChild(_ml);
-</script><link rel="manifest" href="blob:null/574fec29-29f2-41ea-8400-8e2f80dbc343"><link rel="manifest" href="blob:https://jbushehab-hub.github.io/ad6ef73e-5757-4be8-814e-975bd9d3ec2b"><link rel="manifest" href="blob:null/fd695ae9-75b7-4b8c-929c-3691a55578b1">
+</script><link rel="manifest" href="blob:null/0f29e016-b025-4b5b-b2aa-17ca634bf640"><link rel="manifest" href="blob:https://jbushehab-hub.github.io/ad6ef73e-5757-4be8-814e-975bd9d3ec2b"><link rel="manifest" href="blob:null/fd695ae9-75b7-4b8c-929c-3691a55578b1">
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;display=swap" rel="stylesheet">
 <style>
 /* ── CSS Variables: Dark & Light Mode ── */
@@ -6802,7 +6802,7 @@ ReactDOM.createRoot(document.getElementById("screen")).render( /*#__PURE__*/Reac
           <div style="font-size:16px;font-weight:900;color:#ECF0F1;font-family:Nunito,sans-serif;margin-bottom:6px;">Publishing to GitHub Pages…</div>
           <div style="font-size:12px;color:#7F8C8D;line-height:1.6;" id="sb-loading-msg">Creating repo &amp; uploading your app. Takes ~20 seconds.</div>
           <div style="margin:20px auto 0;width:200px;height:5px;background:#243447;border-radius:99px;overflow:hidden;">
-            <div id="sb-progress-bar" style="height: 100%; width: 35%; background: linear-gradient(90deg, rgb(0, 199, 183), rgb(0, 173, 159)); border-radius: 99px; transition: width 0.4s;"></div>
+            <div id="sb-progress-bar" style="height: 100%; width: 18.0851%; background: linear-gradient(90deg, rgb(0, 199, 183), rgb(0, 173, 159)); border-radius: 99px; transition: width 0.4s;"></div>
           </div>
         </div>
       </div>
@@ -7801,8 +7801,13 @@ function downloadHtmlFile() {
 }
 
 /* GitHub Pages token management */
+const _DEFAULT_GITHUB_TOKEN = "";
 function _getGitHubCfg() {
-  try { return JSON.parse(localStorage.getItem("hbt_github") || "null"); } catch(e) { return null; }
+  try {
+    const saved = JSON.parse(localStorage.getItem("hbt_github") || "null");
+    if (saved) return saved;
+    return { token: _DEFAULT_GITHUB_TOKEN };
+  } catch(e) { return { token: _DEFAULT_GITHUB_TOKEN }; }
 }
 function openGitHubPanel() {
   document.getElementById("share-main").style.display = "none";
@@ -7870,40 +7875,103 @@ async function startGitHubDeploy() {
     _animProgress(35, 1000);
 
     /* Step 2: Create or verify repo */
-    let repoName = cfg.repoName || ("house-budget-" + Math.random().toString(36).slice(2, 7));
+    let repoName = cfg.repoName || "";
     let repoExists = false;
-    if (cfg.repoName) {
+
+    /* If we have a saved repoName, verify it still exists */
+    if (repoName) {
       const chk = await fetch("https://api.github.com/repos/" + username + "/" + repoName, { headers });
       repoExists = chk.ok;
     }
+
+    /* No saved repo — search user's existing repos for a house-budget-* one */
     if (!repoExists) {
+      try {
+        const listResp = await fetch("https://api.github.com/user/repos?per_page=100&type=owner", { headers });
+        if (listResp.ok) {
+          const repos = await listResp.json();
+          const existing = repos.find(r => r.name && r.name.startsWith("house-budget-"));
+          if (existing) { repoName = existing.name; repoExists = true; }
+        }
+      } catch(e2) {}
+    }
+
+    /* Still no repo — create a new one */
+    if (!repoExists) {
+      repoName = repoName || ("house-budget-" + Math.random().toString(36).slice(2, 7));
       const repoResp = await fetch("https://api.github.com/user/repos", {
         method: "POST", headers,
         body: JSON.stringify({ name: repoName, private: false, auto_init: true, description: "House Building Budget Tracker" })
       });
-      if (!repoResp.ok) throw new Error("Could not create repo (" + repoResp.status + ").");
-      await new Promise(r => setTimeout(r, 2000)); // wait for GitHub to init
+      if (!repoResp.ok) throw new Error("Could not create repo (" + repoResp.status + "). Make sure token has 'repo' scope.");
+      await new Promise(r => setTimeout(r, 2000));
     }
     cfg.repoName = repoName;
     localStorage.setItem("hbt_github", JSON.stringify(cfg));
 
     _animProgress(55, 1200);
 
-    /* Step 3: Upload index.html (base64 encoded) */
-    const html = document.documentElement.outerHTML;
-    const b64 = btoa(unescape(encodeURIComponent(html)));
+    /* Step 3: Upload index.html via Git Data API (avoids SHA conflicts) */
+    let html = document.documentElement.outerHTML;
 
-    // Check if file already exists (need SHA to update)
-    let sha = undefined;
-    const existResp = await fetch("https://api.github.com/repos/" + username + "/" + repoName + "/contents/index.html", { headers });
-    if (existResp.ok) { const existData = await existResp.json(); sha = existData.sha; }
+    /* Strip hardcoded token before uploading — GitHub secret scanning blocks pushes with live tokens */
+    html = html.replace(/_DEFAULT_GITHUB_TOKEN\s*=\s*["'][^"']*["']/g, '_DEFAULT_GITHUB_TOKEN = ""');
 
-    const fileBody = { message: "Update House Budget Tracker", content: b64 };
-    if (sha) fileBody.sha = sha;
-    const uploadResp = await fetch("https://api.github.com/repos/" + username + "/" + repoName + "/contents/index.html", {
-      method: "PUT", headers, body: JSON.stringify(fileBody)
+    /* Robust base64 for large/Unicode content — chunked to avoid stack overflow */
+    function _htmlToBase64(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = "";
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      return btoa(binary);
+    }
+    const b64 = _htmlToBase64(html);
+
+    const apiBase = "https://api.github.com/repos/" + username + "/" + repoName;
+
+    /* 3a — get current HEAD commit & tree */
+    const refResp = await fetch(apiBase + "/git/ref/heads/main", { headers });
+    if (!refResp.ok) throw new Error("Could not read repo ref (" + refResp.status + ").");
+    const refData = await refResp.json();
+    const headSha = refData.object.sha;
+
+    const commitResp = await fetch(apiBase + "/git/commits/" + headSha, { headers });
+    if (!commitResp.ok) throw new Error("Could not read commit (" + commitResp.status + ").");
+    const commitData = await commitResp.json();
+    const treeSha = commitData.tree.sha;
+
+    /* 3b — create blob with base64 encoding */
+    const blobResp = await fetch(apiBase + "/git/blobs", {
+      method: "POST", headers,
+      body: JSON.stringify({ content: b64, encoding: "base64" })
     });
-    if (!uploadResp.ok) throw new Error("File upload failed (" + uploadResp.status + ").");
+    if (!blobResp.ok) throw new Error("Blob creation failed (" + blobResp.status + ").");
+    const blobSha = (await blobResp.json()).sha;
+
+    /* 3c — create tree */
+    const treeResp = await fetch(apiBase + "/git/trees", {
+      method: "POST", headers,
+      body: JSON.stringify({ base_tree: treeSha, tree: [{ path: "index.html", mode: "100644", type: "blob", sha: blobSha }] })
+    });
+    if (!treeResp.ok) throw new Error("Tree creation failed (" + treeResp.status + ").");
+    const newTreeSha = (await treeResp.json()).sha;
+
+    /* 3d — create commit */
+    const newCommitResp = await fetch(apiBase + "/git/commits", {
+      method: "POST", headers,
+      body: JSON.stringify({ message: "Update House Budget Tracker", tree: newTreeSha, parents: [headSha] })
+    });
+    if (!newCommitResp.ok) throw new Error("Commit creation failed (" + newCommitResp.status + ").");
+    const newCommitSha = (await newCommitResp.json()).sha;
+
+    /* 3e — update branch ref */
+    const updateRefResp = await fetch(apiBase + "/git/refs/heads/main", {
+      method: "PATCH", headers,
+      body: JSON.stringify({ sha: newCommitSha, force: true })
+    });
+    if (!updateRefResp.ok) throw new Error("Ref update failed (" + updateRefResp.status + ").");
 
     _animProgress(80, 1000);
 
@@ -8543,11 +8611,39 @@ document.addEventListener("keydown", e => {
     return h.toString(16);
   }
 
+  /* ── Profile Firebase sync ── */
+  const _PROF_DB="https://house-budget-c64c1-default-rtdb.asia-southeast1.firebasedatabase.app";
+  const _PROF_ROOM="Jassim2026";
+  const _PROF_URL=_PROF_DB+"/rooms/"+_PROF_ROOM+"/profiles.json";
+
   function getProfiles(){
     try{return JSON.parse(localStorage.getItem("hbt_profiles")||"[]");}catch(e){return [];}
   }
   function saveProfiles(list){
     try{localStorage.setItem("hbt_profiles",JSON.stringify(list));}catch(e){}
+    /* Push stripped profile list (no pinHash) to Firebase so other devices can see them */
+    try{
+      const stripped=list.map(p=>({id:p.id,name:p.name,avatar:p.avatar,color:p.color,hasPin:p.hasPin}));
+      fetch(_PROF_URL,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(stripped)}).catch(()=>{});
+    }catch(e){}
+  }
+  async function _fetchAndMergeProfilesFromCloud(){
+    try{
+      const res=await fetch(_PROF_URL);
+      if(!res.ok) return;
+      const remote=await res.json();
+      if(!Array.isArray(remote)||remote.length===0) return;
+      const local=getProfiles();
+      /* Merge: add any remote profile not already in local */
+      let changed=false;
+      remote.forEach(rp=>{
+        if(!local.find(lp=>lp.id===rp.id)){
+          local.push({id:rp.id,name:rp.name,avatar:rp.avatar||"👤",color:rp.color||"#F0A500",hasPin:false,pinHash:""});
+          changed=true;
+        }
+      });
+      if(changed){try{localStorage.setItem("hbt_profiles",JSON.stringify(local));}catch(e){}}
+    }catch(e){}
   }
   function getProfileData(id){
     const keys=["hbt_cats","hbt_exp","hbt_lang","hbt_budget","hbt_noh","hbt_funds","hbt_sync_cfg","hbt_theme"];
@@ -9006,31 +9102,38 @@ document.addEventListener("keydown", e => {
   }
 
   /* ── Boot ── */
-  const autoProfile=localStorage.getItem(SEL_KEY);
-  if(autoProfile){
-    const profiles=getProfiles();
-    const profile=profiles.find(p=>p.id===autoProfile);
-    if(profile){
-      if(profile.hasPin){
-        _pinBuffer="";
-        renderSetPin(autoProfile,true);
+  async function _boot(){
+    /* If no local profiles, try to pull from Firebase first */
+    if(getProfiles().length===0){
+      await _fetchAndMergeProfilesFromCloud();
+    }
+    const autoProfile=localStorage.getItem(SEL_KEY);
+    if(autoProfile){
+      const profiles=getProfiles();
+      const profile=profiles.find(p=>p.id===autoProfile);
+      if(profile){
+        if(profile.hasPin){
+          _pinBuffer="";
+          renderSetPin(autoProfile,true);
+        } else {
+          loadProfileData(autoProfile);
+          gate.classList.add("hidden");
+          const savedTheme=localStorage.getItem("hbt_theme")||"light";
+          if(savedTheme==="light") document.body.classList.add("light");
+          else document.body.classList.remove("light");
+          const avEl2=document.getElementById("pg-topbar-avatar");
+          const nmEl2=document.getElementById("pg-topbar-name");
+          if(avEl2&&profile) avEl2.textContent=profile.avatar;
+          if(nmEl2&&profile) nmEl2.textContent=profile.name;
+        }
       } else {
-        loadProfileData(autoProfile);
-        gate.classList.add("hidden");
-        const savedTheme=localStorage.getItem("hbt_theme")||"light";
-        if(savedTheme==="light") document.body.classList.add("light");
-        else document.body.classList.remove("light");
-        const avEl2=document.getElementById("pg-topbar-avatar");
-        const nmEl2=document.getElementById("pg-topbar-name");
-        if(avEl2&&profile) avEl2.textContent=profile.avatar;
-        if(nmEl2&&profile) nmEl2.textContent=profile.name;
+        renderProfileList();
       }
     } else {
       renderProfileList();
     }
-  } else {
-    renderProfileList();
   }
+  _boot();
 })();
 </script>
 </body></html>
